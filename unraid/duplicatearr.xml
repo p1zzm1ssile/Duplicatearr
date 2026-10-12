@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>duplicatearr</Name>
+  <Repository>ghcr.io/p1zzm1ssile/duplicatearr:latest</Repository>
+  <Registry>https://github.com/p1zzm1ssile/Duplicatearr/pkgs/container/duplicatearr</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/p1zzm1ssile/Duplicatearr/issues</Support>
+  <TemplateURL>https://raw.githubusercontent.com/p1zzm1ssile/unraid-templates/main/templates/duplicatearr.xml</TemplateURL>
+  <Project>https://github.com/p1zzm1ssile/Duplicatearr</Project>
+  <Overview>Finds the same film, episode, poster or extra stored more than once in your library, even when the copies are different encodes, and helps you keep the best one. Starts in report-only mode and is set up in its web UI.</Overview>
+  <Category>MediaApp:Video Tools:</Category>
+  <WebUI>http://[IP]:[PORT:9894]/</WebUI>
+  <Icon>https://raw.githubusercontent.com/p1zzm1ssile/Duplicatearr/main/src/web/icon.png</Icon>
+  <ExtraParams/>
+  <Config Name="Web UI port" Target="9894" Default="9894" Mode="tcp" Description="Port for the Duplicatearr web UI" Type="Port" Display="always" Required="true" Mask="false">9894</Config>
+  <Config Name="Config" Target="/config" Default="/mnt/user/appdata/duplicatearr" Mode="rw" Description="Settings, login and logs" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/duplicatearr</Config>
+  <Config Name="Movies" Target="/movies" Default="/mnt/user/data/media/movies" Mode="rw" Description="Your movie library. Needs read/write, so duplicates can be moved to the recycle folder. Map the same folder Radarr uses." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/data/media/movies</Config>
+  <Config Name="TV" Target="/tv" Default="/mnt/user/data/media/tv" Mode="rw" Description="Your TV library. Needs read/write, so duplicates can be moved to the recycle folder. Map the same folder Sonarr uses." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/data/media/tv</Config>
+</Container>

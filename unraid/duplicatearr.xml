@@ -16,6 +16,6 @@
   <ExtraParams/>
   <Config Name="Web UI port" Target="9894" Default="9894" Mode="tcp" Description="Port for the Duplicatearr web UI" Type="Port" Display="always" Required="true" Mask="false">9894</Config>
   <Config Name="Config" Target="/config" Default="/mnt/user/appdata/duplicatearr" Mode="rw" Description="Settings, login and logs" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/duplicatearr</Config>
-  <Config Name="Movies" Target="/movies" Default="/mnt/user/data/media/movies" Mode="rw" Description="Your movie library. Needs read/write, so duplicates can be moved to the recycle folder. Map the same folder Radarr uses." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/data/media/movies</Config>
-  <Config Name="TV" Target="/tv" Default="/mnt/user/data/media/tv" Mode="rw" Description="Your TV library. Needs read/write, so duplicates can be moved to the recycle folder. Map the same folder Sonarr uses." Type="Path" Display="always" Required="false" Mask="false">/mnt/user/data/media/tv</Config>
+  <Config Name="Movies" Target="/movies" Default="" Mode="rw" Description="Your movie library. Needs read/write, so duplicates can be moved to the recycle folder. Map the same folder Radarr uses." Type="Path" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="TV" Target="/tv" Default="" Mode="rw" Description="Your TV library. Needs read/write, so duplicates can be moved to the recycle folder. Map the same folder Sonarr uses." Type="Path" Display="always" Required="false" Mask="false"></Config>
 </Container>

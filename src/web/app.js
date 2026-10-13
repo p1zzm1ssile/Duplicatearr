@@ -110,6 +110,10 @@ const VERDICT_STYLE = {
 };
 let dashKind = "all";
 let showIgnored = false;
+// Drawing every group at once can freeze the browser (a big library has tens of thousands of matching pictures),
+// so the dashboard draws them a page at a time
+const PAGE = 50;
+let dashLimit = PAGE;
 
 function bytes(n) {
   if (!n) return "0 GB";
@@ -233,14 +237,18 @@ async function showDashboard() {
         Object.entries(KINDS).map(([key, label]) => el("button", {
           type: "button", class: key === dashKind ? "active" : "",
           text: `${label} (${groups.filter((g) => key === "all" || g.kind === key).length})`,
-          onclick: () => { dashKind = key; reload(); },
+          onclick: () => { dashKind = key; dashLimit = PAGE; reload(); },
         }))),
       ignoredCount ? el("label", { class: "chip" },
-        el("input", { type: "checkbox", checked: showIgnored, onchange: (e) => { showIgnored = e.target.checked; reload(); } }),
+        el("input", { type: "checkbox", checked: showIgnored, onchange: (e) => { showIgnored = e.target.checked; dashLimit = PAGE; reload(); } }),
         `Show "not duplicates" (${ignoredCount})`) : null),
     el("p", { class: "muted small", text: "Copies Duplicatearr is sure about are ticked, keeping the best one (or the one Radarr or Sonarr tracks). Change the ticks as you like: nothing moves until you press the button, and moved copies can be restored from History." }),
-    visible.length ? visible.map((g) => groupCard(g, reload))
+    visible.length ? visible.slice(0, dashLimit).map((g) => groupCard(g, reload))
       : el("div", { class: "panel empty", text: !d.scanned_at ? "Press Scan now to look for duplicates." : "No duplicates here." }),
+    visible.length > dashLimit ? el("div", { class: "panel empty" },
+      el("p", { class: "muted small", text: `Showing ${dashLimit.toLocaleString()} of ${visible.length.toLocaleString()}` }),
+      el("button", { type: "button", text: `Show ${Math.min(PAGE, visible.length - dashLimit)} more`,
+        onclick: () => { dashLimit += PAGE; reload(); } })) : null,
     el("div", { class: "panel" },
       el("h2", { text: "Coming next" }),
       el("ul", {}, ["Your own rules, such as always keeping the 4K copy, applied by themselves once you trust them.",

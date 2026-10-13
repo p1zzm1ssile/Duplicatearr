@@ -28,6 +28,9 @@ class Store:
         self.db.row_factory = sqlite3.Row
         self.lock = threading.Lock()
         with self.lock:
+            # Fewer waits on slow disks such as Unraid's array, and still safe if the container stops
+            self.db.execute("PRAGMA journal_mode=WAL")
+            self.db.execute("PRAGMA synchronous=NORMAL")
             self.db.executescript(SCHEMA)
 
     # Cached reads of a file, thrown away when the file changes
@@ -42,6 +45,22 @@ class Store:
     def cache(self, path, size, mtime, info):
         with self.lock, self.db:
             self.db.execute("INSERT OR REPLACE INTO probes VALUES (?, ?, ?, ?)", (path, size, mtime, json.dumps(info)))
+
+    def cache_many(self, rows):
+        """[(path, size, mtime, info)] in one go."""
+        with self.lock, self.db:
+            self.db.executemany("INSERT OR REPLACE INTO probes VALUES (?, ?, ?, ?)",
+                                [(p, s, m, json.dumps(i)) for p, s, m, i in rows])
+
+    def cached_many(self, paths):
+        """{path: (size, mtime, info)} for the paths already in the cache."""
+        out = {}
+        with self.lock:
+            for chunk in range(0, len(paths), 500):
+                part = paths[chunk:chunk + 500]
+                for r in self.db.execute(f"SELECT * FROM probes WHERE path IN ({','.join('?' * len(part))})", part):
+                    out[r["path"]] = (r["size"], r["mtime"], json.loads(r["info"]))
+        return out
 
     def forget_missing(self, keep_paths):
         keep = set(keep_paths)

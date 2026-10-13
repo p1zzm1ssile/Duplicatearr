@@ -13,6 +13,7 @@ import re
 import shutil
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import utils.config as config
 from core import media, probe
@@ -45,7 +46,7 @@ class Scanner:
         self.store = store
         self.lock = threading.Lock()
         self.stop_requested = False
-        self.state = {"running": False, "phase": "", "done": 0, "total": 0, "started": None}
+        self.state = {"running": False, "phase": "", "done": 0, "total": 0, "unit": "", "started": None}
 
     # Running
 
@@ -94,13 +95,21 @@ class Scanner:
     def scan(self):
         self.stop_requested = False
         started = time.time()
-        self.state.update(running=True, phase="Looking through your libraries", done=0, total=0, started=started)
+        self.state.update(running=True, phase="Looking through your libraries", done=0, total=0, unit="files found",
+                          started=started)
         libraries = [l.strip() for l in config.split_labels(config.libraries)]
         missing = [l for l in libraries if not os.path.isdir(l)]
-        videos, images = media.walk([l for l in libraries if os.path.isdir(l)], stop=lambda: self.stop_requested)
-        if self.stop_requested:
-            logger.info("Scan stopped")
+        logger.info(f"Scan started: {', '.join(libraries)}")
+
+        def found():
+            self.state["done"] += 1
+
+        videos, images = media.walk([l for l in libraries if os.path.isdir(l)], stop=lambda: self.stop_requested,
+                                    found=found)
+        if self.stopped("looking through the libraries"):
             return
+        logger.info(f"Found {len(videos)} videos and {sum(len(p) for p in images.values())} pictures "
+                    f"in {time.time() - started:.0f} s")
 
         candidates = []
         movies = [f for f in videos if f.kind == "movie"]
@@ -113,23 +122,26 @@ class Scanner:
             if len(files) > 1:
                 candidates.append(("episode", key, f"{files[0].title} {key.rsplit('|', 1)[1]}", files))
 
-        self.state.update(phase="Comparing copies", total=len(candidates))
+        self.state.update(phase="Comparing copies", done=0, total=len(candidates), unit="groups compared")
         tracked = self.tracked_files({
             os.path.relpath(f.path, f.library).split(os.sep)[0].lower()
             for kind, _, _, files in candidates if kind == "episode" for f in files})
         groups = []
         for kind, key, title, files in candidates:
-            if self.stop_requested:
-                logger.info("Scan stopped")
+            if self.stopped("comparing copies"):
                 return
             groups.append(self.compare(kind, key, title, files, tracked))
             self.state["done"] += 1
 
-        self.state.update(phase="Checking extras")
         groups += self.identical_extras([f for f in videos if f.kind == "extra"])
+        if self.stopped("checking extras"):
+            return
         if config.check_images:
-            self.state.update(phase="Comparing posters and artwork")
+            step = time.time()
             groups += self.duplicate_images(images)
+            if self.stopped("comparing posters and artwork"):
+                return
+            logger.info(f"Compared {self.state['total']} pictures in {time.time() - step:.0f} s")
 
         self.store.forget_missing([f.path for f in videos] + [p for ps in images.values() for p in ps])
         groups.sort(key=lambda g: ({"movie": 0, "episode": 1, "extra": 2, "image": 3}[g["kind"]], g["title"].lower()))
@@ -138,8 +150,13 @@ class Scanner:
             "missing_libraries": missing,
         }
         self._save(data)
-        logger.info(f"Scan finished: {len(videos)} videos, {len(groups)} groups of duplicates, "
+        logger.info(f"Scan finished in {time.time() - started:.0f} s: {len(groups)} groups of duplicates, "
                     f"{bytes_text(sum(g['reclaimable'] for g in groups))} could be freed")
+
+    def stopped(self, during):
+        if self.stop_requested:
+            logger.info(f"Scan stopped while {during}. The last finished scan's results are kept")
+        return self.stop_requested
 
     def info(self, f):
         """What's in a video, from the cache when the file hasn't changed."""
@@ -213,12 +230,21 @@ class Scanner:
         return UNSURE
 
     def identical_extras(self, extras):
-        by_hash = {}
+        # Identical files are the same size, so only those that share a size with another are read
+        by_size = {}
         for f in extras:
+            by_size.setdefault((media_folder(f), f.size), []).append(f)
+        todo = [f for fs in by_size.values() if len(fs) > 1 for f in fs]
+        self.state.update(phase="Checking extras", done=0, total=len(todo), unit="extras checked")
+        by_hash = {}
+        for f in todo:
+            if self.stop_requested:
+                return []
             try:
                 by_hash.setdefault((media_folder(f), f.size, probe.quick_hash(f.path, f.size)), []).append(f)
             except OSError:
-                continue
+                pass
+            self.state["done"] += 1
         groups = []
         for (folder, size, _), files in by_hash.items():
             files = distinct(files)
@@ -237,22 +263,69 @@ class Scanner:
         return groups
 
     def duplicate_images(self, images):
-        groups = []
+        """The same picture saved more than once in a folder.
+
+        Only the headers are read at first. A picture is only decoded when another one in its folder has the same
+        shape, as a poster can't be a copy of a fanart, and episode thumbnails are skipped: each is a different episode.
+        """
+        self.state.update(phase="Looking at posters and artwork", done=0, total=0, unit="folders looked at")
+        candidates = {}
         for folder, paths in images.items():
-            if len(paths) < 2:
+            self.state["done"] += 1
+            if self.stop_requested or len(paths) < 2:
                 continue
-            hashed = []
-            for path in sorted(paths):
-                try:
-                    st = os.stat(path)
-                except OSError:
+            videos = {os.path.splitext(n)[0] for n in safe_listdir(folder) if os.path.splitext(n)[1].lower() in media.VIDEO}
+            shapes = {}
+            for path in paths:
+                stem = os.path.splitext(os.path.basename(path))[0]
+                if stem.endswith("-thumb") and stem[:-6] in videos:
                     continue
-                cached = self.store.cached(path, st.st_size, st.st_mtime)
-                if "image" not in cached:
-                    cached = {"image": probe.image_hash(path)}
-                    self.store.cache(path, st.st_size, st.st_mtime, cached)
-                if cached["image"]:
-                    hashed.append((path, st.st_size, st.st_nlink, *cached["image"]))
+                size = probe.image_size(path)
+                if size and size[0] and size[1]:
+                    shapes.setdefault(round(size[0] / size[1] * 20), []).append(path)
+            same_shape = [p for ps in shapes.values() if len(ps) > 1 for p in ps]
+            if same_shape:
+                candidates[folder] = same_shape
+
+        todo = [p for ps in candidates.values() for p in ps]
+        self.state.update(phase="Comparing posters and artwork", done=0, total=len(todo), unit="pictures compared")
+        cached = self.store.cached_many(todo)
+        hashes, new = {}, []
+        stats = {}
+        for path in todo:
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            stats[path] = st
+            hit = cached.get(path)
+            if hit and hit[0] == st.st_size and abs(hit[1] - st.st_mtime) < 1 and "image" in hit[2]:
+                hashes[path] = hit[2]["image"]
+                self.state["done"] += 1
+            else:
+                new.append(path)
+
+        # A few at a time: decoding mostly waits on the disk, and Pillow lets other threads run meanwhile
+        workers = 2 if config.low_priority else 4
+        batch = []
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for path, result in zip(new, pool.map(probe.image_hash, new)):
+                if self.stop_requested:
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    break
+                hashes[path] = result
+                st = stats[path]
+                batch.append((path, st.st_size, st.st_mtime, {"image": result}))
+                self.state["done"] += 1
+                if len(batch) >= 200:
+                    self.store.cache_many(batch)
+                    batch = []
+        if batch:
+            self.store.cache_many(batch)
+
+        groups = []
+        for folder, paths in candidates.items():
+            hashed = [(p, stats[p].st_size, stats[p].st_nlink, *hashes[p]) for p in sorted(paths) if hashes.get(p)]
             used = set()
             for i, (path, size, links, h, w, ht) in enumerate(hashed):
                 if path in used:
@@ -483,6 +556,13 @@ def sidecars_of(video):
 def folder_title(folder):
     """"Dune (2021) {tmdb-438631}" -> "Dune (2021)"."""
     return re.sub(r"\s*[\[{][^\]}]*[\]}]", "", os.path.basename(folder.rstrip("/"))).strip() or folder
+
+
+def safe_listdir(folder):
+    try:
+        return os.listdir(folder)
+    except OSError:
+        return []
 
 
 def remove_empty_parents(path):

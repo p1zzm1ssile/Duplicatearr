@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1
+
+- **Much faster artwork check.** It could take hours on a big library. Episode thumbnails are now skipped (each is a
+  different episode), a picture is only read when another in its folder has the same shape, JPEGs are read at a
+  fraction of their size, a few are read at a time, and results are saved in batches.
+- Extras are only read when two in the same folder are exactly the same size.
+- Every step of a scan shows its own progress, and **Stop** works in all of them.
+- The log says when a scan starts, how long each step took, and when it finishes or is stopped.
+
 ## 0.2.0
 
 - **Scan now** finds films and episodes stored more than once, by TMDB, IMDb or TVDB ID (folder names and .nfo

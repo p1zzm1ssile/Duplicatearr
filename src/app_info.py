@@ -4,7 +4,7 @@ import os
 
 NAME = "Duplicatearr"
 SLUG = "duplicatearr"
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 PORT = 9894
 TAGLINE = 'Finds the same film, episode, poster or extra stored more than once in your library, even when the copies are different encodes, and helps you keep the best one.'
 

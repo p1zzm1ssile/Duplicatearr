@@ -186,6 +186,12 @@ function groupCard(g, reload) {
     el("div", { class: "card-actions" }, remove, ignore, result));
 }
 
+function progressText(p) {
+  const n = (x) => x.toLocaleString();
+  const took = p.started ? ` · started ${ago(p.started)}` : "";
+  return (p.total ? `${n(p.done)} of ${n(p.total)} ${p.unit}` : `${n(p.done)} ${p.unit}`) + took;
+}
+
 async function showDashboard() {
   const d = await api("/api/results");
   const p = d.progress;
@@ -210,7 +216,7 @@ async function showDashboard() {
     p.running ? el("div", { class: "panel" },
       el("strong", { text: p.phase + "…" }),
       p.total ? el("div", { class: "progress" }, el("span", { style: `width:${Math.round((100 * p.done) / p.total)}%` })) : null,
-      p.total ? el("div", { class: "muted small", text: `${p.done} of ${p.total} groups compared` } ) : null) : null,
+      el("div", { class: "muted small", id: "progress-text", text: progressText(p) })) : null,
     !d.libraries.length ? el("div", { class: "notice warn" }, "No library folders are set up. Add them in ",
       el("a", { href: "#/settings/general", text: "Settings" }), ".") : null,
     (d.missing_libraries || []).length ? el("div", { class: "notice bad", text: `These folders weren't found, so weren't scanned: ${d.missing_libraries.join(", ")}. Check the paths in Settings and the container's folder mappings.` }) : null,
@@ -244,8 +250,12 @@ async function showDashboard() {
     const r = await api("/api/results");
     if (!r.progress.running) reload();
     else {
+      // A new step has started: draw the page again for its heading and bar
+      if (r.progress.phase !== p.phase || !!r.progress.total !== !!p.total) { reload(); return; }
       const bar = view.querySelector(".progress > span");
       if (bar && r.progress.total) bar.style.width = `${Math.round((100 * r.progress.done) / r.progress.total)}%`;
+      const text = document.getElementById("progress-text");
+      if (text) text.textContent = progressText(r.progress);
     }
   });
 }

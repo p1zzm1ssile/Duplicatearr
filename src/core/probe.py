@@ -115,12 +115,23 @@ def same_frames(a, b, limit=12):
     return False if matches <= 1 else None
 
 
+def image_size(path):
+    """(width, height) from the picture's header, without decoding it, or None."""
+    try:
+        with Image.open(path) as im:
+            return im.size
+    except (OSError, ValueError, Image.DecompressionBombError):
+        return None
+
+
 def image_hash(path):
     """(dhash, width, height) of a picture, or None if it can't be read."""
     try:
         with Image.open(path) as im:
             width, height = im.size
-            small = im.convert("L").resize((9, 8), Image.LANCZOS)
+            # JPEGs can be decoded at an eighth of the size, which is much quicker and plenty for a 9x8 fingerprint
+            im.draft("L", (64, 64))
+            small = im.convert("L").resize((9, 8), Image.BOX)
             return _dhash(list(small.tobytes())), width, height
     except (OSError, ValueError, Image.DecompressionBombError):
         return None

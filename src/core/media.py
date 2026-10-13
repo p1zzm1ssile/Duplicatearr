@@ -126,7 +126,7 @@ def is_extra(relative_parts, stem):
     return any(p.lower() in EXTRAS_FOLDERS for p in relative_parts[:-1]) or bool(EXTRAS_SUFFIX.search(stem))
 
 
-def walk(libraries, stop=lambda: False):
+def walk(libraries, stop=lambda: False, found=lambda: None):
     """Every video and image under the libraries, as (MediaFile list, images by folder)."""
     videos, images = [], {}
     nfo_cache = {}
@@ -151,9 +151,11 @@ def walk(libraries, stop=lambda: False):
                 path = os.path.join(folder, name)
                 if ext in IMAGE:
                     images.setdefault(folder, []).append(path)
+                    found()
                     continue
                 if ext not in VIDEO:
                     continue
+                found()
                 try:
                     st = os.stat(path)
                 except OSError:

@@ -263,7 +263,7 @@ class Scanner:
         return groups
 
     def duplicate_images(self, images):
-        """The same picture saved more than once in a folder.
+        """The same picture saved more than once in a folder, at least once under a name no player looks for.
 
         Only the headers are read at first. A picture is only decoded when another one in its folder has the same
         shape, as a poster can't be a copy of a fanart, and episode thumbnails are skipped: each is a different episode.
@@ -341,6 +341,9 @@ class Scanner:
                 if len(same) < 2:
                     continue
                 used.add(path)
+                # Copies that all have names players look for (poster.jpg and folder.jpg) are there on purpose
+                if all(media.is_artwork_name(s[0]) for s in same):
+                    continue
                 same.sort(key=lambda s: (-s[3] * s[4], s[0]))
                 rows = [{"path": p, "size": sz, "library": "", "links": ln, "tracked": "", "width": w, "height": ht,
                          "suggest": "keep" if n == 0 else ""} for n, (p, sz, ln, w, ht) in enumerate(same)]

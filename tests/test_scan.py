@@ -58,10 +58,20 @@ def library(tmp_path_factory):
     picture(f"{movies}/Dune (2021) {{tmdb-438631}}/poster.jpg", (600, 900))
     picture(f"{movies}/Dune (2021) {{tmdb-438631}}/folder.jpg", (300, 450))
     picture(f"{movies}/Dune (2021) {{tmdb-438631}}/fanart.jpg", (300, 450), colour_shift=128)
+    picture(f"{movies}/Dune (2021) {{tmdb-438631}}/poster (1).jpg", (300, 450))
+    # Copies under names players look for are on purpose
+    picture(f"{movies}/Heat (1995)/poster.jpg", (600, 900))
+    picture(f"{movies}/Heat (1995)/folder.jpg", (300, 450))
+    picture(f"{movies}/Heat (1995)/Heat (1995)-poster.jpg", (300, 450))
     # An episode stored twice
     video(f"{tv}/The Show (2019)/Season 01/The Show - S01E01 - Pilot.mkv", size="640x480")
     video(f"{tv}/The Show (2019)/Season 01/The.Show.S01E01.720p.mp4", size="320x240")
     video(f"{tv}/The Show (2019)/Season 01/The Show - S01E02.mkv", source="mandelbrot", seconds=4)
+    # Openings, endings and specials without episode numbers aren't films
+    video(f"{tv}/The Show (2019)/NC/OP.mkv", seconds=3)
+    video(f"{tv}/The Show (2019)/NC/ED.mkv", source="mandelbrot", seconds=3)
+    video(f"{tv}/The Show (2019)/Specials/The Show - Special 01.mkv", seconds=3)
+    video(f"{tv}/The Show (2019)/Specials/The Show - Special 02.mkv", source="mandelbrot", seconds=3)
     return movies, tv
 
 
@@ -113,8 +123,15 @@ def test_identical_extras_and_pictures(scanner):
     assert os.path.basename(next(f["path"] for f in extra["files"] if f["suggest"] == "keep")) == "Trailer 1.mkv"
     pictures = g["Picture in Dune (2021)"]
     names = sorted(os.path.basename(f["path"]) for f in pictures["files"])
-    assert names == ["folder.jpg", "poster.jpg"]  # not the fanart
+    assert names == ["folder.jpg", "poster (1).jpg", "poster.jpg"]  # not the fanart
     assert not [f for f in pictures["files"] if f["suggest"] == "remove"]
+    assert "Picture in Heat (1995)" not in g
+
+
+def test_videos_beside_a_series_are_not_films(scanner):
+    g = groups(scanner)
+    films = [f["path"] for x in g.values() if x["kind"] == "movie" for f in x["files"]]
+    assert films and not [p for p in films if "The Show" in p]
 
 
 def test_remove_a_copy_and_restore_it(scanner):

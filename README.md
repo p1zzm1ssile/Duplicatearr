@@ -17,7 +17,8 @@ Press **Scan now** on the Dashboard (scans also run by themselves once a day).
   in the folder's `.nfo` file, and otherwise by title and year. So `Dune (2021)` and `Dune Part One (2021)` are found
   as one film when either names the ID, including across libraries such as Movies and 4K.
 - **Episodes** are grouped by series folder (its TVDB ID, or its title) and the season and episode in the file name,
-  including multi-episode files.
+  including multi-episode files. Other videos in a series' folder, such as openings and endings (`OP.mkv`, `ED.mkv`) or
+  specials without an episode number, are treated as extras, so only identical copies are listed.
 - **Not duplicates:** different editions (`{edition-Extended}`, Director's Cut and so on), CD1 and CD2 of one film, and
   hardlinks of the same file are left alone.
 
@@ -42,8 +43,9 @@ each other.
 
 ### Posters, artwork and extras
 
-- **Pictures:** the same picture saved twice in one folder under different names or sizes. Nothing is ticked, as some
-  players look for particular names such as `poster.jpg` and `folder.jpg`.
+- **Pictures:** the same picture saved twice in one folder under different names or sizes, when at least one copy has a
+  name no player looks for (`poster (1).jpg`, say). Copies that all have names players use, such as `poster.jpg`,
+  `folder.jpg` and `Film-poster.jpg`, are there on purpose and aren't listed. Nothing is ticked.
 - **Extras:** identical trailers and extras.
 
 ### Removing and restoring

@@ -35,6 +35,12 @@ EDITION_TAG = re.compile(r"\{edition-([^}]+)\}", re.I)
 EDITION_WORDS = re.compile(
     r"(?<![a-z])(extended(?: cut| edition)?|director'?s(?: cut)?|unrated|uncut|theatrical(?: cut)?|imax|final cut|"
     r"special edition|ultimate(?: cut| edition)?|remastered)(?![a-z])", re.I)
+# Names players look for, so a copy under one of these is there on purpose: poster.jpg and folder.jpg, or Kodi's
+# Film-poster.jpg next to Jellyfin's poster.jpg. Digits allowed for numbered slots (backdrop2.jpg).
+ARTWORK_NAME = re.compile(
+    r"^(?:.+[-.])?(poster|folder|cover|default|movie|show|fanart|backdrop|background|art|banner|logo|clearlogo|"
+    r"clearart|landscape|thumb|disc|discart|cdart|keyart|characterart|"
+    r"season(?:\d+|-all|-specials)?(?:-(?:poster|banner|fanart|landscape|thumb))?)\d*$", re.I)
 PART = re.compile(r"(?<![a-z])(?:cd|disc|disk|dvd|part|pt)[ ._-]?(\d{1,2})(?![0-9])", re.I)
 
 
@@ -193,7 +199,22 @@ def walk(libraries, stop=lambda: False, found=lambda: None):
                 f.part = part.group(1).lstrip("0") if part else ""
                 f.key = title_key(os.path.basename(movie_folder) if len(relative) >= 2 else stem)
                 videos.append(f)
+
+    # Other videos in a series' folder aren't films: openings and endings (OP.mkv, ED.mkv), specials without an
+    # episode number, and the like. They're treated as extras, so only identical copies are flagged.
+    series = {(f.library, os.path.relpath(f.path, f.library).split(os.sep)[0]) for f in videos if f.kind == "episode"}
+    for f in videos:
+        if f.kind == "movie":
+            relative = os.path.relpath(f.path, f.library).split(os.sep)
+            if len(relative) >= 2 and (f.library, relative[0]) in series:
+                folder = os.path.dirname(f.path)
+                f.kind, f.key, f.title = "extra", "extra:" + folder, os.path.relpath(folder, f.library)
     return videos, images
+
+
+def is_artwork_name(path):
+    """Whether a picture's name is one players look for, e.g. poster.jpg or Film-fanart.jpg."""
+    return bool(ARTWORK_NAME.match(os.path.splitext(os.path.basename(path))[0]))
 
 
 def group_movies(movies):

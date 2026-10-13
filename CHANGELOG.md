@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **The dashboard shows 50 groups at a time**, with a Show more button. A big library could list tens of thousands
+  and freeze the browser.
+- **Far fewer pictures listed.** Copies that all have names players look for (`poster.jpg`, `folder.jpg`,
+  `Film-poster.jpg`, `fanart.jpg` and so on) are there on purpose and are no longer listed. A copy under any other
+  name, like `poster (1).jpg`, still is.
+- **Openings, endings and specials aren't films.** Videos in a series' folder without an episode number (`OP.mkv`,
+  `ED.mkv`, `Special 01.mkv`) were grouped as one film. They're now treated as extras: only identical copies are listed.
+
 ## 0.2.1
 
 - **Much faster artwork check.** It could take hours on a big library. Episode thumbnails are now skipped (each is a

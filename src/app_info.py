@@ -4,7 +4,7 @@ import os
 
 NAME = "Duplicatearr"
 SLUG = "duplicatearr"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 PORT = 9894
 TAGLINE = 'Finds the same film, episode, poster or extra stored more than once in your library, even when the copies are different encodes, and helps you keep the best one.'
 
@@ -18,24 +18,10 @@ SERVICES = [
 
 # Shown on the Dashboard until each check is ready
 PLANNED = [
-    {"title": 'Films and episodes stored twice', "items": [
-        'Groups files by their TMDB, IMDb or TVDB ID, from Radarr, Sonarr, .nfo files and folder names, so Dune (2021) and Dune Part One (2021) are seen as one film.',
-        'The same film in two libraries, such as Movies and 4K, and old copies left behind after an upgrade.',
-        'Episodes that exist twice, for example as both .mkv and .mp4.',
-        "Checks matches by comparing frames from the video, so a 4K remux and a 1080p WEB-DL of the same film are found, and a theatrical cut isn't mistaken for the extended one.",
-    ]},
-    {"title": 'Posters, artwork and extras', "items": [
-        'The same poster or fanart saved under different names or sizes.',
-        'Trailers and extras stored more than once.',
-    ]},
-    {"title": 'Choosing what to keep', "items": [
-        'Suggests the best copy by resolution, HDR and Dolby Vision, source and audio, which you can change.',
-        'Knows which file Radarr or Sonarr tracks, so removing a copy never makes them download it again.',
-    ]},
-    {"title": 'Safe to leave running', "items": [
-        'Report only to start with: nothing is removed until you say so.',
-        'Removed files go to a recycle folder first, with restore.',
-        'Files still seeding (hardlinked) are left alone until the torrent is gone.',
+    {"title": "Coming next", "items": [
+        "Your own rules, such as always keeping the 4K copy, applied by themselves once you trust them.",
+        "Telling Jellyfin and Plex straight away when a copy is removed.",
+        "Duplicate music and books.",
     ]},
 ]
 
@@ -49,5 +35,25 @@ def _default_libraries():
 def extra_fields(F, env_str, env_bool, env_int):
     return [
         F("libraries", "general", "Folders to check", "labels", _default_libraries(), section="Libraries", paths=True,
-          help="Your library folders as they're mapped inside the container, separated by commas, e.g. /movies, /tv."),
+          help="Your library folders as they're mapped inside the container, separated by commas, e.g. /movies, /tv. "
+               "Films and episodes are told apart by their names, so one folder can hold both."),
+        F("scan_interval_hours", "general", "Scan every (hours)", "int", env_int("SCAN_INTERVAL_HOURS", default=24),
+          section="Scanning", min=1, max=720,
+          help="Scans only report what they find. Nothing is ever removed until you tick it and press the button."),
+        F("check_images", "general", "Look for duplicate posters and artwork", "bool",
+          env_bool("CHECK_IMAGES", default=True), section="Scanning",
+          help="The same picture saved twice in one folder under different names or sizes."),
+        F("compare_frames", "general", "Compare frames from the video", "bool", env_bool("COMPARE_FRAMES", default=True),
+          section="Scanning",
+          help="Takes a few frames from each copy to check they're the same film or episode before suggesting one "
+               "for removal. Uses a little CPU on files that look like duplicates; nothing else is read."),
+        F("low_priority", "general", "Run at low priority", "bool", env_bool("LOW_PRIORITY", default=True),
+          section="Scanning", help="ffprobe and ffmpeg give way to everything else on the server, like a Jellyfin transcode."),
+        F("recycle_days", "general", "Keep removed files for (days)", "int", env_int("RECYCLE_DAYS", default=7),
+          section="Recycle folder", min=0, max=365,
+          help="Removed copies can be restored from History until then. 0 deletes them straight away."),
+        F("recycle_folder", "general", "Recycle folder", "text", env_str("RECYCLE_FOLDER", default=""),
+          section="Recycle folder", paths=True,
+          help="Leave empty to use a hidden .duplicatearr-recycle folder at the top of each library, which keeps "
+               "removed files on the same disk so moving them is instant."),
     ]

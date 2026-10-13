@@ -8,7 +8,8 @@ LABEL org.opencontainers.image.description='Duplicatearr: finds the same film, e
 
 WORKDIR /app
 
-RUN apk add --no-cache python3 py3-pip
+# ffprobe reads each copy and ffmpeg takes a few frames to compare
+RUN apk add --no-cache python3 py3-pip ffmpeg
 COPY ./src/requirements.txt .
 RUN pip install --no-cache-dir --break-system-packages -r /app/requirements.txt
 COPY ./src .

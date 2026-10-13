@@ -54,6 +54,11 @@ function ago(timestamp) {
   return `${Math.round(seconds / 86400)}d ago`;
 }
 
+function splitPath(path) {
+  const i = path.lastIndexOf("/");
+  return [path.slice(0, i), path.slice(i + 1)];
+}
+
 const when = (timestamp) => new Date(timestamp * 1000).toLocaleString();
 
 
@@ -98,25 +103,179 @@ api("/api/session").then((s) => {
 
 // ---------- Dashboard ----------
 
+const KINDS = { all: "Everything", movie: "Films", episode: "Episodes", extra: "Extras", image: "Pictures" };
+const VERDICT_STYLE = {
+  same: ["ok", "Same video"], likely: ["info", "Very likely the same"], unsure: ["warn", "Check by hand"],
+  different: ["bad", "Frames differ"], editions: ["warn", "Different editions"], lengths: ["warn", "Different lengths"],
+};
+let dashKind = "all";
+let showIgnored = false;
+
+function bytes(n) {
+  if (!n) return "0 GB";
+  const units = ["bytes", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  while (Math.abs(n) >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return i === 0 ? `${n} bytes` : `${n.toFixed(1)} ${units[i]}`;
+}
+
+function runtime(seconds) {
+  if (!seconds) return "";
+  if (seconds < 60) return `${Math.round(seconds)} s`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  return h ? `${h} h ${m} min` : `${m} min`;
+}
+
+function quality(f) {
+  if (f.error) return f.error;
+  const parts = [];
+  if (f.height) parts.push(f.height >= 2000 ? "2160p" : f.height >= 1000 ? "1080p" : f.height >= 700 ? "720p" : `${f.height}p`);
+  else if (f.width) parts.push(`${f.width}×${f.height}`);
+  if (f.hdr) parts.push(f.hdr);
+  if (f.codec) parts.push(f.codec.toUpperCase());
+  if (f.audio) parts.push(`${f.audio_profile || f.audio.toUpperCase()}${f.channels ? " " + ({ 2: "2.0", 6: "5.1", 8: "7.1" }[f.channels] || `${f.channels}ch`) : ""}`);
+  if (f.duration) parts.push(runtime(f.duration));
+  return parts.join(" · ");
+}
+
+function groupCard(g, reload) {
+  const result = el("span", { class: "result", role: "status" });
+  const boxes = {};
+  const [style, label] = g.kind === "image" ? ["ok", "Same picture"] : g.kind === "extra" ? ["ok", "Identical files"]
+    : VERDICT_STYLE[g.verdict] || ["info", g.verdict];
+  const rows = g.files.map((f) => {
+    const [folder, name] = splitPath(f.path);
+    boxes[f.path] = el("input", { type: "checkbox", checked: f.suggest === "remove", "aria-label": `Remove ${name}` });
+    return el("tr", {},
+      el("td", {}, boxes[f.path]),
+      el("td", { class: "name" },
+        el("div", { text: name }),
+        el("div", { class: "path", text: folder }),
+        el("div", { class: "row-wrap" },
+          f.suggest === "keep" ? el("span", { class: "badge ok", text: "Suggested to keep" }) : null,
+          f.tracked ? el("span", { class: "badge info", text: `Tracked by ${f.tracked}` }) : null,
+          f.links > 1 ? el("span", { class: "badge warn", text: "Hardlinked: frees no space until the torrent is gone" }) : null,
+          f.edition ? el("span", { class: "badge", text: f.edition }) : null)),
+      el("td", { class: "small", text: g.kind === "image" ? `${f.width}×${f.height}` : quality(f) }),
+      el("td", { class: "small nowrap", text: bytes(f.size) }));
+  });
+
+  const remove = el("button", { type: "button", class: "danger", text: "Move ticked to recycle folder" });
+  remove.addEventListener("click", async () => {
+    const paths = Object.entries(boxes).filter(([, b]) => b.checked).map(([p]) => p);
+    if (!paths.length) { flash(result, false, "Tick the copies to remove first"); return; }
+    if (paths.length === g.files.length) { flash(result, false, "Leave at least one copy unticked"); return; }
+    if (!confirm(`Move ${paths.length} cop${paths.length === 1 ? "y" : "ies"} of "${g.title}" to the recycle folder? You can restore from History.`)) return;
+    remove.disabled = true;
+    try { flash(result, true, (await post("/api/recycle", { group: g.id, paths })).message); setTimeout(reload, 1200); }
+    catch (e) { flash(result, false, e.message); remove.disabled = false; }
+  });
+  const ignore = el("button", { type: "button", text: g.ignored ? "Show again" : "Not duplicates" });
+  ignore.addEventListener("click", async () => { await post("/api/ignore", { group: g.id, ignored: !g.ignored }); reload(); });
+
+  return el("div", { class: "panel" },
+    el("div", { class: "row-wrap" },
+      el("span", { class: "badge", text: KINDS[g.kind] }),
+      el("span", { class: `badge ${style}`, text: label }),
+      g.reclaimable ? el("span", { class: "badge", text: `Frees ${bytes(g.reclaimable)}` }) : null),
+    el("h2", { text: g.title }),
+    el("p", { class: "muted small", text: g.verdict_text }),
+    g.note ? el("div", { class: "notice warn small", text: g.note }) : null,
+    el("table", {}, el("tbody", {}, rows)),
+    el("div", { class: "card-actions" }, remove, ignore, result));
+}
+
 async function showDashboard() {
-  const d = await api("/api/dashboard");
-  const connected = d.connections.filter((c) => c.enabled);
-  view.replaceChildren(
-    el("h1", { text: "Dashboard" }),
-    el("p", { class: "muted", text: d.tagline }),
+  const d = await api("/api/results");
+  const p = d.progress;
+  const reload = () => showDashboard();
+  const groups = d.groups.filter((g) => g.ignored === showIgnored);
+  const visible = groups.filter((g) => dashKind === "all" || g.kind === dashKind);
+  const ignoredCount = d.groups.filter((g) => g.ignored).length;
+  const active = d.groups.filter((g) => !g.ignored);
+
+  const scan = el("button", { type: "button", class: "primary", text: p.running ? "Scanning…" : "Scan now", disabled: p.running });
+  scan.addEventListener("click", async () => {
+    try { await post("/api/scan"); reload(); } catch (e) { alert(e.message); }
+  });
+  const stop = p.running ? el("button", { type: "button", text: "Stop", onclick: async () => { await post("/api/stop"); } }) : null;
+
+  view.replaceChildren(...[
+    el("div", { class: "toolbar" },
+      el("h1", { text: "Dashboard" }),
+      el("span", { class: "spacer" }),
+      el("span", { class: "muted small", text: d.scanned_at ? `Last scan ${ago(d.scanned_at)}, ${d.files} videos` : "Not scanned yet" }),
+      stop, scan),
+    p.running ? el("div", { class: "panel" },
+      el("strong", { text: p.phase + "…" }),
+      p.total ? el("div", { class: "progress" }, el("span", { style: `width:${Math.round((100 * p.done) / p.total)}%` })) : null,
+      p.total ? el("div", { class: "muted small", text: `${p.done} of ${p.total} groups compared` } ) : null) : null,
+    !d.libraries.length ? el("div", { class: "notice warn" }, "No library folders are set up. Add them in ",
+      el("a", { href: "#/settings/general", text: "Settings" }), ".") : null,
+    (d.missing_libraries || []).length ? el("div", { class: "notice bad", text: `These folders weren't found, so weren't scanned: ${d.missing_libraries.join(", ")}. Check the paths in Settings and the container's folder mappings.` }) : null,
+    el("div", { class: "tiles" },
+      ["movie", "episode", "extra", "image"].map((k) => el("div", { class: "tile" },
+        el("span", { class: "num", text: String(active.filter((g) => g.kind === k).length) }),
+        el("span", { class: "label", text: KINDS[k] }))),
+      el("div", { class: "tile warn" }, el("span", { class: "num", text: bytes(active.reduce((s, g) => s + g.reclaimable, 0)) }),
+        el("span", { class: "label", text: "Could be freed" })),
+      el("div", { class: "tile ok" }, el("span", { class: "num", text: bytes(d.reclaimed) }),
+        el("span", { class: "label", text: "Freed so far" }))),
+    el("div", { class: "toolbar" },
+      el("div", { class: "segmented", role: "group", "aria-label": "Show" },
+        Object.entries(KINDS).map(([key, label]) => el("button", {
+          type: "button", class: key === dashKind ? "active" : "",
+          text: `${label} (${groups.filter((g) => key === "all" || g.kind === key).length})`,
+          onclick: () => { dashKind = key; reload(); },
+        }))),
+      ignoredCount ? el("label", { class: "chip" },
+        el("input", { type: "checkbox", checked: showIgnored, onchange: (e) => { showIgnored = e.target.checked; reload(); } }),
+        `Show "not duplicates" (${ignoredCount})`) : null),
+    el("p", { class: "muted small", text: "Copies Duplicatearr is sure about are ticked, keeping the best one (or the one Radarr or Sonarr tracks). Change the ticks as you like: nothing moves until you press the button, and moved copies can be restored from History." }),
+    visible.length ? visible.map((g) => groupCard(g, reload))
+      : el("div", { class: "panel empty", text: !d.scanned_at ? "Press Scan now to look for duplicates." : "No duplicates here." }),
     el("div", { class: "panel" },
-      el("h2", { text: "Connections" }),
-      connected.length
-        ? el("p", {}, "Connected to ", connected.map((c) => c.label).join(", "), ". ",
-          el("a", { href: "#/settings/general", text: "Change in Settings" }), ".")
-        : el("p", { class: "muted" }, "Nothing is connected yet. Add your apps under ",
-          el("a", { href: `#/settings/${d.connections[0].key}`, text: "Settings" }),
-          " and press Test connection on each.")),
-    ...d.planned.map((group) => el("div", { class: "panel" },
-      el("h2", { text: group.title }),
-      el("ul", {}, group.items.map((item) => el("li", { text: item }))))),
-    el("p", { class: "muted small" }, "Something you'd like it to check? ",
-      el("a", { href: "#/contact", text: "Suggest it" }), "."));
+      el("h2", { text: "Coming next" }),
+      el("ul", {}, ["Your own rules, such as always keeping the 4K copy, applied by themselves once you trust them.",
+        "Telling Jellyfin and Plex straight away when a copy is removed.", "Duplicate music and books."].map((t) => el("li", { text: t })))),
+  ].flat().filter(Boolean));
+  if (p.running) every(2000, async () => {
+    const r = await api("/api/results");
+    if (!r.progress.running) reload();
+    else {
+      const bar = view.querySelector(".progress > span");
+      if (bar && r.progress.total) bar.style.width = `${Math.round((100 * r.progress.done) / r.progress.total)}%`;
+    }
+  });
+}
+
+// ---------- History ----------
+
+const STATE_TEXT = { recycled: "In the recycle folder", restored: "Restored", purged: "Emptied", deleted: "Deleted" };
+
+async function showHistory() {
+  const d = await api("/api/history");
+  view.replaceChildren(...[
+    el("h1", { text: "History" }),
+    el("p", { class: "muted", text: d.recycle_days ? `Removed copies stay in the recycle folder for ${d.recycle_days} days, and can be restored until then.` : "The recycle folder is turned off (0 days), so removed copies are deleted straight away." }),
+    d.entries.length ? el("div", { class: "panel" }, el("table", {},
+      el("thead", {}, el("tr", {}, el("th", { text: "When" }), el("th", { text: "File" }), el("th", { text: "Size" }), el("th", { text: "" }))),
+      el("tbody", {}, d.entries.map((e) => {
+        const [folder, name] = splitPath(e.original);
+        const action = e.state === "recycled" ? el("button", { type: "button", text: "Restore", onclick: async (ev) => {
+          ev.target.disabled = true;
+          try { alert((await post("/api/restore", { id: e.id })).message); showHistory(); }
+          catch (err) { alert(err.message); ev.target.disabled = false; }
+        } }) : el("span", { class: "muted small", text: STATE_TEXT[e.state] || e.state });
+        return el("tr", {},
+          el("td", { class: "small nowrap", text: when(e.at) }),
+          el("td", { class: "name" }, el("div", { text: name }), el("div", { class: "path", text: folder }),
+            el("div", { class: "muted small", text: e.group_title })),
+          el("td", { class: "small nowrap", text: bytes(e.size) }),
+          el("td", {}, action));
+      })))) : el("div", { class: "panel empty", text: "Nothing has been removed yet." }),
+  ]);
 }
 
 // ---------- Logs ----------
@@ -379,7 +538,8 @@ async function route() {
   const name = page || "dashboard";
   document.querySelectorAll("nav.main a").forEach((a) => a.classList.toggle("active", a.dataset.page === name));
   try {
-    if (name === "logs") await showLogs();
+    if (name === "history") await showHistory();
+    else if (name === "logs") await showLogs();
     else if (name === "settings") await showSettings(sub || "general");
     else if (name === "contact") showContact();
     else await showDashboard();

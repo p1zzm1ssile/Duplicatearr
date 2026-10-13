@@ -16,6 +16,7 @@ import app_info
 import utils.auth as auth
 import utils.config as config
 import utils.status as status
+from core.scanner import Busy
 from services.connections import Service, ServiceError
 from utils.logger import logger
 
@@ -38,6 +39,7 @@ SECURITY_HEADERS = {
     "Cache-Control": "no-store",
 }
 SERVICE_LABELS = {key: label for key, label, *_ in app_info.SERVICES}
+scanner = None  # set by serve()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -154,6 +156,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200, {**status.health(), "version": app_info.VERSION})
             if path == "/api/dashboard":
                 return self.send(200, dashboard())
+            if path == "/api/results":
+                return self.send(200, {**scanner.results(), "progress": scanner.progress(),
+                                       "reclaimed": scanner.store.reclaimed(), "recycle_days": config.recycle_days,
+                                       "libraries": config.split_labels(config.libraries)})
+            if path == "/api/history":
+                try:
+                    offset = max(0, int(query.get("offset", 0)))
+                except ValueError:
+                    offset = 0
+                total, rows = scanner.store.history(offset=offset)
+                return self.send(200, {"total": total, "entries": rows, "recycle_days": config.recycle_days})
             if path == "/api/settings":
                 return self.send(200, {
                     "tabs": config.TABS,
@@ -248,6 +261,32 @@ class Handler(BaseHTTPRequestHandler):
                 token = auth.login(self.ip, data.get("username") or auth.username(), data.get("password"))
                 return self.send(200, {"ok": True}, headers={"Set-Cookie": self.session_cookie(token, auth.SESSION_SECONDS)})
 
+            try:
+                if path == "/api/scan":
+                    scanner.background(scanner.scan)
+                    return self.send(200, {"ok": True, "message": "Scanning"})
+                if path == "/api/stop":
+                    scanner.stop()
+                    return self.send(200, {"ok": True, "message": "Stopping"})
+                if path == "/api/recycle":
+                    paths = data.get("paths") or []
+                    if not isinstance(paths, list):
+                        raise ValueError("paths must be a list")
+                    if scanner.lock.locked():
+                        raise Busy("Wait for the scan to finish first")
+                    with scanner.lock:
+                        message = scanner.recycle(str(data.get("group", "")), [str(p) for p in paths])
+                    return self.send(200, {"ok": True, "message": message})
+                if path == "/api/ignore":
+                    scanner.store.set_ignored(str(data.get("group", "")), bool(data.get("ignored")))
+                    return self.send(200, {"ok": True})
+                if path == "/api/restore":
+                    with scanner.lock:
+                        message = scanner.restore(int(data.get("id", 0)))
+                    return self.send(200, {"ok": True, "message": message})
+            except Busy as e:
+                return self.send(409, {"error": str(e)})
+
             self.send(404, {"error": "Not found"})
         except ValueError as e:
             self.send(400, {"error": str(e)})
@@ -313,7 +352,9 @@ def test_connection(target, values):
         return {"ok": False, "message": str(e)}
 
 
-def serve():
+def serve(s):
+    global scanner
+    scanner = s
     server = ThreadingHTTPServer(("", config.web_port), Handler)
     server.daemon_threads = True
     logger.info(f"Starting web UI at {config.web_host}:{config.web_port}")

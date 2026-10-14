@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Keys and passwords are kept out of the logs.** Any API key or password, and any `apikey=`, `token=` or `password=` in a web address quoted by an error, is replaced by `***` before it's written. Log files, and the file that holds the login, can now only be read by the account the app runs as.
 - **The dashboard shows 50 groups at a time**, with a Show more button. A big library could list tens of thousands
   and freeze the browser.
 - **Far fewer pictures listed.** Copies that all have names players look for (`poster.jpg`, `folder.jpg`,

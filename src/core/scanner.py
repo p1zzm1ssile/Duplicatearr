@@ -130,7 +130,10 @@ class Scanner:
         for kind, key, title, files in candidates:
             if self.stopped("comparing copies"):
                 return
-            groups.append(self.compare(kind, key, title, files, tracked))
+            # Radarr and Sonarr keep one file per film or episode, so two tracked files are two different things:
+            # specials that share an episode number, say
+            if sum(1 for f in files if tracked.get(track_key(f.path))) < 2:
+                groups.append(self.compare(kind, key, title, files, tracked))
             self.state["done"] += 1
 
         groups += self.identical_extras([f for f in videos if f.kind == "extra"])
@@ -245,11 +248,23 @@ class Scanner:
             except OSError:
                 pass
             self.state["done"] += 1
-        groups = []
+        # A copy is ticked for removal, so ones that look alike are read all the way through to be sure
+        identical = []
         for (folder, size, _), files in by_hash.items():
+            if self.stop_requested:
+                return []
             files = distinct(files)
             if len(files) < 2:
                 continue
+            by_full = {}
+            for f in files:
+                try:
+                    by_full.setdefault(probe.full_hash(f.path), []).append(f)
+                except OSError:
+                    pass
+            identical += [(folder, fs) for fs in by_full.values() if len(fs) > 1]
+        groups = []
+        for folder, files in identical:
             # Keep the plainest name: "Trailer 1.mkv" over "Trailer 1 (copy).mkv"
             files = sorted(files, key=lambda f: (len(os.path.basename(f.path)), f.path))
             rows = [{"path": f.path, "size": f.size, "library": f.library, "links": f.links, "tracked": "",
@@ -342,7 +357,9 @@ class Scanner:
                     continue
                 used.add(path)
                 # Copies that all have names players look for (poster.jpg and folder.jpg) are there on purpose
-                if all(media.is_artwork_name(s[0]) for s in same):
+                videos = {os.path.splitext(n)[0] for n in safe_listdir(folder)
+                          if os.path.splitext(n)[1].lower() in media.VIDEO}
+                if all(media.is_artwork_name(s[0], videos) for s in same):
                     continue
                 same.sort(key=lambda s: (-s[3] * s[4], s[0]))
                 rows = [{"path": p, "size": sz, "library": "", "links": ln, "tracked": "", "width": w, "height": ht,

@@ -40,6 +40,15 @@ def quick_hash(path, size):
     return h.hexdigest()
 
 
+def full_hash(path):
+    """A fingerprint of the whole file."""
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
 def video_info(path):
     """Resolution, HDR, audio and length, or {"error": ...}."""
     try:

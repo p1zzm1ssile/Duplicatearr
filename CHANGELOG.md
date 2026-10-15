@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Episodes named in words are episodes.** `Show Season 05 Episode 01.mkv` (or `Series 5 Ep 1`), and `Episode 01.mkv`
+  in a season folder like `S05` or `Season 5`, weren't recognised, so a season's episodes were grouped as one film
+  named after the folder. They're now read as episodes, and any other video under a season folder is treated as an
+  extra rather than a film.
 - **Keys and passwords are kept out of the logs.** Any API key or password, and any `apikey=`, `token=` or `password=` in a web address quoted by an error, is replaced by `***` before it's written. Log files, and the file that holds the login, can now only be read by the account the app runs as.
 - **The dashboard shows 50 groups at a time**, with a Show more button. A big library could list tens of thousands
   and freeze the browser.

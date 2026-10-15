@@ -72,6 +72,10 @@ def library(tmp_path_factory):
     video(f"{tv}/The Show (2019)/NC/ED.mkv", source="mandelbrot", seconds=3)
     video(f"{tv}/The Show (2019)/Specials/The Show - Special 01.mkv", seconds=3)
     video(f"{tv}/The Show (2019)/Specials/The Show - Special 02.mkv", source="mandelbrot", seconds=3)
+    # Episodes named in words, in a season folder named S05: each is a different episode
+    video(f"{tv}/A Touch of Frost/S05/A Touch of Frost Season 05 Episode 01 - Penny for the Guy 720p.mkv", seconds=4)
+    video(f"{tv}/A Touch of Frost/S05/A Touch of Frost Season 05 Episode 02 - House Calls 720p.mkv",
+          source="mandelbrot", seconds=5)
     return movies, tv
 
 
@@ -128,10 +132,25 @@ def test_identical_extras_and_pictures(scanner):
     assert "Picture in Heat (1995)" not in g
 
 
+def test_episodes_named_in_words_are_episodes():
+    assert media.episodes_in("A Touch of Frost Season 05 Episode 01 - Penny for the Guy 720p.mkv") == [(5, 1)]
+    assert media.episodes_in("Show.Series.2.Ep.10.mkv") == [(2, 10)]
+    assert media.episodes_in("Episode 04 - No Other Love.mkv", "S05") == [(5, 4)]
+    assert media.episodes_in("E07.mkv", "Season 2") == [(2, 7)]
+    assert media.episodes_in("Episode 04.mkv", "Extras") == []
+    assert media.episodes_in("Dune (2021).mkv") == []
+
+
+def test_different_episodes_in_a_season_folder_are_not_grouped(scanner):
+    g = groups(scanner)
+    assert "S05" not in g
+    assert "A Touch of Frost S05E01" not in g and "A Touch of Frost S05E02" not in g
+
+
 def test_videos_beside_a_series_are_not_films(scanner):
     g = groups(scanner)
     films = [f["path"] for x in g.values() if x["kind"] == "movie" for f in x["files"]]
-    assert films and not [p for p in films if "The Show" in p]
+    assert films and not [p for p in films if "The Show" in p or "Touch of Frost" in p]
 
 
 def test_remove_a_copy_and_restore_it(scanner):

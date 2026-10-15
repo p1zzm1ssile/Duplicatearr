@@ -6,6 +6,11 @@
   in a season folder like `S05` or `Season 5`, weren't recognised, so a season's episodes were grouped as one film
   named after the folder. They're now read as episodes, and any other video under a season folder is treated as an
   extra rather than a film.
+- **Two files Radarr or Sonarr track aren't duplicates.** They keep one file per film or episode, so two tracked files
+  under one episode number (specials that share a slot, say) are left alone.
+- **Pictures named after their folder are artwork.** `'Allo 'Allo!/'Allo 'Allo!.jpg` beside `poster.jpg` and
+  `folder.jpg`, or `Dune (2021).jpg` beside `Dune (2021).mkv`, is there on purpose and no longer listed.
+- **Identical extras are checked all the way through** before one is ticked, not just their size, start and end.
 - **Keys and passwords are kept out of the logs.** Any API key or password, and any `apikey=`, `token=` or `password=` in a web address quoted by an error, is replaced by `***` before it's written. Log files, and the file that holds the login, can now only be read by the account the app runs as.
 - **The dashboard shows 50 groups at a time**, with a Show more button. A big library could list tens of thousands
   and freeze the browser.

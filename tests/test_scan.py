@@ -72,6 +72,13 @@ def library(tmp_path_factory):
     video(f"{tv}/The Show (2019)/NC/ED.mkv", source="mandelbrot", seconds=3)
     video(f"{tv}/The Show (2019)/Specials/The Show - Special 01.mkv", seconds=3)
     video(f"{tv}/The Show (2019)/Specials/The Show - Special 02.mkv", source="mandelbrot", seconds=3)
+    # A show's poster saved as folder.jpg, poster.jpg and under the show's own name is on purpose
+    picture(f"{tv}/The Show (2019)/The Show (2019).jpg", (600, 900))
+    picture(f"{tv}/The Show (2019)/poster.jpg", (600, 900))
+    picture(f"{tv}/The Show (2019)/folder.jpg", (300, 450))
+    # Two specials Sonarr files under the same episode number
+    video(f"{tv}/The Show (2019)/Season 02/The Show S02E01 Christmas Special.mkv", seconds=4)
+    video(f"{tv}/The Show (2019)/Season 02/The Show S02E01 Homesick.mkv", source="mandelbrot", seconds=4)
     # Episodes named in words, in a season folder named S05: each is a different episode
     video(f"{tv}/A Touch of Frost/S05/A Touch of Frost Season 05 Episode 01 - Penny for the Guy 720p.mkv", seconds=4)
     video(f"{tv}/A Touch of Frost/S05/A Touch of Frost Season 05 Episode 02 - House Calls 720p.mkv",
@@ -80,9 +87,11 @@ def library(tmp_path_factory):
 
 
 @pytest.fixture
-def scanner(library, tmp_path):
+def scanner(library, tmp_path, monkeypatch):
     config.update({"libraries": ", ".join(library), "compare_frames": True, "check_images": True, "recycle_days": 7})
     s = Scanner(Store(str(tmp_path / "test.db")))
+    tracked = {"season 02/the show s02e01 christmas special.mkv": "Sonarr", "season 02/the show s02e01 homesick.mkv": "Sonarr"}
+    monkeypatch.setattr(s, "tracked_files", lambda series_folders=(): tracked)
     s.scan()
     return s
 
@@ -145,6 +154,14 @@ def test_different_episodes_in_a_season_folder_are_not_grouped(scanner):
     g = groups(scanner)
     assert "S05" not in g
     assert "A Touch of Frost S05E01" not in g and "A Touch of Frost S05E02" not in g
+
+
+def test_artwork_named_after_its_folder_is_on_purpose(scanner):
+    assert "Picture in The Show (2019)" not in groups(scanner)
+
+
+def test_two_files_sonarr_tracks_are_not_duplicates(scanner):
+    assert "The Show S02E01" not in groups(scanner)
 
 
 def test_videos_beside_a_series_are_not_films(scanner):

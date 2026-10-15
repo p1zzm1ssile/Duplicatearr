@@ -24,6 +24,13 @@ EXTRAS_SUFFIX = re.compile(
 EPISODE = re.compile(r"(?<![a-z0-9])s(\d{1,3})[ ._-]?e(\d{1,4})((?:[ ._-]?-?e\d{1,4})*)", re.I)
 EPISODE_X = re.compile(r"(?<![a-z0-9])(\d{1,2})x(\d{2,3})(?![0-9])", re.I)
 MORE_EPISODES = re.compile(r"e(\d{1,4})", re.I)
+# Spelled out: "Season 05 Episode 01", "Series 5 Ep 3", "Season.1.Episode.2"
+EPISODE_WORDS = re.compile(
+    r"(?<![a-z])(?:season|series)[ ._-]*(\d{1,3})[ ._-]*(?:-[ ._-]*)?(?:episode|ep)[ ._-]*(\d{1,4})(?![0-9])", re.I)
+# A folder for one season: "S05", "Season 5", "Series 05", "Specials"
+SEASON_FOLDER = re.compile(r"^(?:s|season|series)[ ._-]*(\d{1,3})$|^specials$", re.I)
+# An episode number alone, for a file in a season folder: "Episode 01", "Ep 3", "E04"
+EPISODE_ONLY = re.compile(r"(?<![a-z0-9])(?:episode|ep|e)[ ._-]*(\d{1,4})(?![0-9])", re.I)
 YEAR = re.compile(r"\((\d{4})\)|[. _\[](19\d{2}|20\d{2})(?:[. _\])]|$)")
 TMDB = re.compile(r"[\[{(](?:tmdb|tmdbid)[-=](\d+)[\]})]", re.I)
 IMDB = re.compile(r"[\[{(](?:imdb|imdbid)[-=](tt\d+)[\]})]", re.I)
@@ -113,8 +120,16 @@ def edition_of(name):
     return re.sub(r"\s+", " ", words.group(1).lower().replace("'", "")) if words else ""
 
 
-def episodes_in(name):
-    """[(season, episode), ...] from a file name, or []."""
+def season_of_folder(name):
+    """The season a folder holds ("S05" -> 5, "Specials" -> 0), or None."""
+    match = SEASON_FOLDER.match(name.strip())
+    if not match:
+        return None
+    return int(match.group(1)) if match.group(1) else 0
+
+
+def episodes_in(name, season_folder=None):
+    """[(season, episode), ...] from a file name, or []. season_folder is the name of the folder it's in."""
     match = EPISODE.search(name)
     if match:
         season = int(match.group(1))
@@ -125,6 +140,14 @@ def episodes_in(name):
     match = EPISODE_X.search(name)
     if match:
         return [(int(match.group(1)), int(match.group(2)))]
+    match = EPISODE_WORDS.search(name)
+    if match:
+        return [(int(match.group(1)), int(match.group(2)))]
+    season = season_of_folder(season_folder) if season_folder else None
+    if season is not None:
+        match = EPISODE_ONLY.search(name)
+        if match:
+            return [(season, int(match.group(1)))]
     return []
 
 
@@ -175,7 +198,7 @@ def walk(libraries, stop=lambda: False, found=lambda: None):
                     f.title = os.path.relpath(folder, library)
                     videos.append(f)
                     continue
-                episodes = episodes_in(name)
+                episodes = episodes_in(name, relative[-2] if len(relative) >= 3 else None)
                 if episodes and len(relative) >= 2:
                     series_folder = os.path.join(library, relative[0])
                     ids = folder_ids(series_folder)
@@ -201,8 +224,13 @@ def walk(libraries, stop=lambda: False, found=lambda: None):
                 videos.append(f)
 
     # Other videos in a series' folder aren't films: openings and endings (OP.mkv, ED.mkv), specials without an
-    # episode number, and the like. They're treated as extras, so only identical copies are flagged.
+    # episode number, and the like. They're treated as extras, so only identical copies are flagged. So are videos
+    # under a season folder ("Show/S05/..."), even when no episode in the series has a number we can read.
     series = {(f.library, os.path.relpath(f.path, f.library).split(os.sep)[0]) for f in videos if f.kind == "episode"}
+    for f in videos:
+        relative = os.path.relpath(f.path, f.library).split(os.sep)
+        if f.kind == "movie" and any(season_of_folder(p) is not None for p in relative[1:-1]):
+            series.add((f.library, relative[0]))
     for f in videos:
         if f.kind == "movie":
             relative = os.path.relpath(f.path, f.library).split(os.sep)

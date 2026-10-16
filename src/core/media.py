@@ -240,9 +240,13 @@ def walk(libraries, stop=lambda: False, found=lambda: None):
     return videos, images
 
 
-def is_artwork_name(path):
-    """Whether a picture's name is one players look for, e.g. poster.jpg or Film-fanart.jpg."""
-    return bool(ARTWORK_NAME.match(os.path.splitext(os.path.basename(path))[0]))
+def is_artwork_name(path, videos=()):
+    """Whether a picture's name is one players look for, e.g. poster.jpg or Film-fanart.jpg. So is one named after
+    its folder ("'Allo 'Allo!/'Allo 'Allo!.jpg") or after a video beside it (Dune (2021).jpg next to the film)."""
+    stem = os.path.splitext(os.path.basename(path))[0]
+    folder = os.path.basename(os.path.dirname(path))
+    named = {folder.lower(), re.sub(r"\s*[\[{][^\]}]*[\]}]", "", folder).strip().lower()} | {v.lower() for v in videos}
+    return bool(ARTWORK_NAME.match(stem)) or stem.lower() in named
 
 
 def group_movies(movies):

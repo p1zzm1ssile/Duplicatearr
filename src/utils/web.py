@@ -159,7 +159,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/results":
                 return self.send(200, {**scanner.results(), "progress": scanner.progress(),
                                        "reclaimed": scanner.store.reclaimed(), "recycle_days": config.recycle_days,
-                                       "libraries": config.split_labels(config.libraries)})
+                                       "libraries": config.split_labels(config.libraries),
+                                       "other_folders": bool(config.check_all_files and config.other_folders)})
             if path == "/api/history":
                 try:
                     offset = max(0, int(query.get("offset", 0)))

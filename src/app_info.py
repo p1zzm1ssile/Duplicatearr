@@ -6,7 +6,7 @@ NAME = "Duplicatearr"
 SLUG = "duplicatearr"
 VERSION = "0.2.1"
 PORT = 9894
-TAGLINE = 'Finds the same film, episode, poster or extra stored more than once in your library, even when the copies are different encodes, and helps you keep the best one.'
+TAGLINE = 'Finds the same film, episode, poster or extra stored more than once in your library, even when the copies are different encodes, and helps you keep the best one. It can also find identical files of any type across your array.'
 
 # (key, name, default port, where to find the API key)
 SERVICES = [
@@ -32,6 +32,11 @@ def _default_libraries():
     return ", ".join(p for p in paths if p and os.path.isdir(p))
 
 
+def _default_other_folders():
+    """The whole array, when the Unraid template's Array folder is mapped."""
+    return "/array" if os.path.isdir("/array") else ""
+
+
 def extra_fields(F, env_str, env_bool, env_int):
     return [
         F("libraries", "general", "Folders to check", "labels", _default_libraries(), section="Libraries", paths=True,
@@ -49,6 +54,21 @@ def extra_fields(F, env_str, env_bool, env_int):
                "for removal. Uses a little CPU on files that look like duplicates; nothing else is read."),
         F("low_priority", "general", "Run at low priority", "bool", env_bool("LOW_PRIORITY", default=True),
           section="Scanning", help="ffprobe and ffmpeg give way to everything else on the server, like a Jellyfin transcode."),
+        F("check_all_files", "general", "Look for identical files of any type", "bool",
+          env_bool("CHECK_ALL_FILES", default=False), section="Identical files",
+          help="Finds exact copies of any file, not just films and episodes: downloads, ISOs, backups, photos and "
+               "so on, in your library folders and the folders below. Files are compared by size first, so only "
+               "ones that share a size are read. Nothing is ticked: you choose what to remove."),
+        F("other_folders", "general", "Other folders to check", "labels", env_str("OTHER_FOLDERS",
+          default=_default_other_folders()), section="Identical files", paths=True,
+          help="More folders to look through for identical files, as they're mapped inside the container. Map "
+               "/mnt/user to /array in the Unraid template and add /array here to check the whole array."),
+        F("skip_folders", "general", "Folders to skip", "labels",
+          env_str("SKIP_FOLDERS", default="appdata, system, domains"), section="Identical files",
+          help="Folder names left out wherever they appear, so app data full of small matching files isn't listed."),
+        F("min_file_mb", "general", "Smallest file to compare (MB)", "int", env_int("MIN_FILE_MB", default=1),
+          section="Identical files", min=0, max=1000000,
+          help="Smaller files are left out. Lots of tiny files are identical on purpose."),
         F("recycle_days", "general", "Keep removed files for (days)", "int", env_int("RECYCLE_DAYS", default=7),
           section="Recycle folder", min=0, max=365,
           help="Removed copies can be restored from History until then. 0 deletes them straight away."),

@@ -9,7 +9,7 @@
   <Support>https://github.com/p1zzm1ssile/Duplicatearr/issues</Support>
   <TemplateURL>https://raw.githubusercontent.com/p1zzm1ssile/unraid-templates/main/templates/duplicatearr.xml</TemplateURL>
   <Project>https://github.com/p1zzm1ssile/Duplicatearr</Project>
-  <Overview>Finds the same film, episode, poster or extra stored more than once in your library, even when the copies are different encodes, and helps you keep the best one. Starts in report-only mode and is set up in its web UI. Free forever: no paid tiers, no Pro account, no subscriptions.</Overview>
+  <Overview>Finds the same film, episode, poster or extra stored more than once in your library, even when the copies are different encodes, and helps you keep the best one. It can also find identical files of any type across your array. Starts in report-only mode and is set up in its web UI. Free forever: no paid tiers, no Pro account, no subscriptions.</Overview>
   <Category>MediaApp:Video Tools:</Category>
   <WebUI>http://[IP]:[PORT:9894]/</WebUI>
   <Icon>https://raw.githubusercontent.com/p1zzm1ssile/Duplicatearr/main/src/web/icon.png</Icon>
@@ -18,4 +18,5 @@
   <Config Name="Config" Target="/config" Default="/mnt/user/appdata/duplicatearr" Mode="rw" Description="Settings, login and logs" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/duplicatearr</Config>
   <Config Name="Movies" Target="/movies" Default="" Mode="rw" Description="Your movie library. Needs read/write, so duplicates can be moved to the recycle folder. Map the same folder Radarr uses." Type="Path" Display="always" Required="false" Mask="false"></Config>
   <Config Name="TV" Target="/tv" Default="" Mode="rw" Description="Your TV library. Needs read/write, so duplicates can be moved to the recycle folder. Map the same folder Sonarr uses." Type="Path" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="Array" Target="/array" Default="" Mode="rw" Description="Optional. Map /mnt/user here to look for identical files of any type across the whole array (turn it on in Settings). Needs read/write, so copies can be moved to the recycle folder." Type="Path" Display="always" Required="false" Mask="false"></Config>
 </Container>

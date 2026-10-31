@@ -2,7 +2,7 @@
 
 # Duplicatearr
 
-Finds the same film, episode, poster or extra stored more than once in your library, even when the copies are different encodes, and helps you keep the best one.
+Finds the same film, episode, poster or extra stored more than once in your library, even when the copies are different encodes, and helps you keep the best one. It can also find identical files of any type across your array.
 
 A scan only reads. Nothing is removed until you tick a copy and press the button, and removed copies go to a recycle
 folder you can restore them from.
@@ -47,6 +47,22 @@ each other.
   name no player looks for (`poster (1).jpg`, say). Copies that all have names players use, such as `poster.jpg`,
   `folder.jpg` and `Film-poster.jpg`, are there on purpose and aren't listed. Nothing is ticked.
 - **Extras:** identical trailers and extras.
+
+### Identical files of any type
+
+Turn on **Look for identical files of any type** in Settings to find exact copies of anything: downloads, ISOs,
+backups, photos and so on, not just films and episodes.
+
+- It looks through your library folders and any **other folders** you add. To check the whole array, map `/mnt/user`
+  to `/array` in the Unraid template and add `/array`.
+- Only files that share a size with another are read: first their start and end, then, if those match, the whole file.
+  Results are cached, so later scans only read what's changed.
+- Hardlinks, and the same file seen through two folder mappings, count once. Files already listed as a film, episode,
+  extra or picture aren't listed again.
+- Folders named `appdata`, `system` and `domains`, hidden folders, and files under 1 MB are skipped by default. Both
+  can be changed in Settings.
+- Nothing is ticked, since an app may need a copy where it is. The copy in a library, or with the plainest name, is
+  suggested to keep. A removed copy goes to a recycle folder at the top of its share, so it stays on the same disk.
 
 ### Removing and restoring
 

@@ -199,3 +199,47 @@ def test_recycled_files_are_emptied_after_the_set_days(scanner, monkeypatch):
     scanner.purge()
     assert not os.path.exists(recycled)
     assert scanner.store.history()[1][0]["state"] == "purged"
+
+
+def test_identical_files_of_any_type(tmp_path, monkeypatch):
+    movies, array = tmp_path / "movies", tmp_path / "array"
+    blob = os.urandom(3 << 20)
+    for p, data in [
+        (array / "downloads" / "film.iso", blob),
+        (array / "backups" / "film (copy).iso", blob),
+        (array / "backups" / "other.iso", blob[:-1] + bytes([blob[-1] ^ 1])),  # same size, last byte differs
+        (array / "appdata" / "plex" / "film.iso", blob),  # skipped folder
+        (array / ".hidden" / "film.iso", blob),  # hidden folder
+        (array / "isos" / "tiny-a.txt", b"x" * 100),  # under the size limit
+        (array / "isos" / "tiny-b.txt", b"x" * 100),
+        (movies / "Notes" / "film.iso", blob),  # in a library
+    ]:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(data)
+    os.link(array / "downloads" / "film.iso", array / "downloads" / "film-hardlink.iso")
+
+    config.update({"libraries": str(movies), "check_all_files": True, "other_folders": str(array),
+                   "skip_folders": "appdata, system", "min_file_mb": 1, "check_images": True, "recycle_days": 7})
+    s = Scanner(Store(str(tmp_path / "test.db")))
+    monkeypatch.setattr(s, "tracked_files", lambda series_folders=(): {})
+    s.scan()
+    files = [g for g in s.results()["groups"] if g["kind"] == "file"]
+    assert len(files) == 1
+    paths = [f["path"] for f in files[0]["files"]]
+    assert len(paths) == 3
+    assert paths[0] == str(movies / "Notes" / "film.iso")  # the library copy is suggested to keep
+    assert {os.path.basename(p) for p in paths[1:]} <= {"film.iso", "film-hardlink.iso", "film (copy).iso"}
+    assert not [f for f in files[0]["files"] if f["suggest"] == "remove"]  # nothing ticked
+    assert files[0]["reclaimable"] == 3 << 20  # the hardlinked copy frees nothing
+
+    # A removed copy goes to a recycle folder in its own share, so it stays on the same disk
+    copy = str(array / "backups" / "film (copy).iso")
+    s.recycle(files[0]["id"], [copy])
+    assert not os.path.exists(copy)
+    recycled = s.store.history()[1][0]["recycled"]
+    assert recycled.startswith(str(array / "backups" / media.RECYCLE_NAME))
+
+    # Off by default: nothing outside films, episodes, extras and pictures is listed
+    config.update({"check_all_files": False})
+    s.scan()
+    assert not [g for g in s.results()["groups"] if g["kind"] == "file"]

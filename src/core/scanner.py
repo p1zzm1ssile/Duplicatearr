@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -98,8 +99,9 @@ class Scanner:
         self.state.update(running=True, phase="Looking through your libraries", done=0, total=0, unit="files found",
                           started=started)
         libraries = [l.strip() for l in config.split_labels(config.libraries)]
-        missing = [l for l in libraries if not os.path.isdir(l)]
-        logger.info(f"Scan started: {', '.join(libraries)}")
+        others = [o.strip() for o in config.split_labels(config.other_folders)] if config.check_all_files else []
+        missing = [l for l in libraries + others if not os.path.isdir(l)]
+        logger.info(f"Scan started: {', '.join(libraries + others)}")
 
         def found():
             self.state["done"] += 1
@@ -146,11 +148,24 @@ class Scanner:
                 return
             logger.info(f"Compared {self.state['total']} pictures in {time.time() - step:.0f} s")
 
-        self.store.forget_missing([f.path for f in videos] + [p for ps in images.values() for p in ps])
-        groups.sort(key=lambda g: ({"movie": 0, "episode": 1, "extra": 2, "image": 3}[g["kind"]], g["title"].lower()))
+        other_files, hashed = 0, []
+        if config.check_all_files:
+            step = time.time()
+            # Files already listed as a film, episode, extra or picture aren't listed again
+            listed = {inode_of(r["path"]) for g in groups for r in g["files"]} - {None}
+            found_groups, other_files, hashed = self.identical_files(
+                [l for l in libraries if os.path.isdir(l)], [o for o in others if os.path.isdir(o)], listed)
+            if self.stopped("looking for identical files"):
+                return
+            groups += found_groups
+            logger.info(f"Looked through {other_files} files for identical copies in {time.time() - step:.0f} s")
+
+        self.store.forget_missing([f.path for f in videos] + [p for ps in images.values() for p in ps] + hashed)
+        groups.sort(key=lambda g: ({"movie": 0, "episode": 1, "extra": 2, "image": 3, "file": 4}[g["kind"]],
+                                   g["title"].lower()))
         data = {
-            "scanned_at": time.time(), "took": time.time() - started, "files": len(videos), "groups": groups,
-            "missing_libraries": missing,
+            "scanned_at": time.time(), "took": time.time() - started, "files": len(videos), "other_files": other_files,
+            "groups": groups, "missing_libraries": missing,
         }
         self._save(data)
         logger.info(f"Scan finished in {time.time() - started:.0f} s: {len(groups)} groups of duplicates, "
@@ -374,6 +389,98 @@ class Scanner:
                 })
         return groups
 
+    def identical_files(self, libraries, others, listed=frozenset()):
+        """Exact copies of any file under the libraries and the other folders: ([groups], files looked at, [paths read]).
+
+        Only files that share a size with another are read: first their start and end, then, for those that still
+        match, all the way through. Whole-file fingerprints are cached, so a later scan only reads what's changed.
+        Hardlinks, and the same file seen through two folder mappings, count once. Nothing is ticked.
+        """
+        self.state.update(phase="Looking for identical files", done=0, total=0, unit="files found")
+        skip = {n.lower() for n in config.split_labels(config.skip_folders)}
+        smallest = max(1, config.min_file_mb * 1024 * 1024)
+        recycle = config.recycle_folder.rstrip("/") if config.recycle_folder else ""
+        by_size, seen = {}, set(listed)
+        count = 0
+        for root in libraries + others:
+            for folder, dirs, files in os.walk(root):
+                if self.stop_requested:
+                    return [], count, []
+                dirs[:] = [d for d in dirs if not d.startswith(".") and d.lower() not in skip
+                           and d not in ("@eaDir", "#recycle", "lost+found")
+                           and not (recycle and os.path.join(folder, d) == recycle)]
+                for name in files:
+                    path = os.path.join(folder, name)
+                    try:
+                        st = os.stat(path, follow_symlinks=False)
+                    except OSError:
+                        continue
+                    if not stat.S_ISREG(st.st_mode):
+                        continue
+                    count += 1
+                    self.state["done"] = count
+                    inode = (st.st_dev, st.st_ino)
+                    if st.st_size < smallest or inode in seen:
+                        continue
+                    seen.add(inode)
+                    by_size.setdefault(st.st_size, []).append((path, root, st))
+
+        todo = [f for fs in by_size.values() if len(fs) > 1 for f in fs]
+        self.state.update(phase="Comparing files of the same size", done=0, total=len(todo), unit="files compared")
+        by_quick = {}
+        for path, root, st in todo:
+            if self.stop_requested:
+                return [], count, []
+            try:
+                by_quick.setdefault((st.st_size, probe.quick_hash(path, st.st_size)), []).append((path, root, st))
+            except OSError:
+                pass
+            self.state["done"] += 1
+
+        # A start and an end that match aren't enough, so those are read all the way through
+        todo = [f for fs in by_quick.values() if len(fs) > 1 for f in fs]
+        self.state.update(phase="Reading files that look identical", done=0, total=len(todo), unit="files read")
+        cached = self.store.cached_many([p for p, _, _ in todo])
+        by_full, batch = {}, []
+        for path, root, st in todo:
+            if self.stop_requested:
+                return [], count, []
+            hit = cached.get(path)
+            if hit and hit[0] == st.st_size and abs(hit[1] - st.st_mtime) < 1 and "sha1" in hit[2]:
+                digest = hit[2]["sha1"]
+            else:
+                try:
+                    digest = probe.full_hash(path)
+                except OSError:
+                    continue
+                batch.append((path, st.st_size, st.st_mtime, {"sha1": digest}))
+                if len(batch) >= 200:
+                    self.store.cache_many(batch)
+                    batch = []
+            by_full.setdefault((st.st_size, digest), []).append((path, root, st))
+            self.state["done"] += 1
+        if batch:
+            self.store.cache_many(batch)
+
+        groups = []
+        in_library = set(libraries)
+        for (size, digest), files in by_full.items():
+            if len(files) < 2:
+                continue
+            # Suggest keeping the copy in a library, then the one with the plainest name and the shortest path
+            files.sort(key=lambda f: (f[1] not in in_library, len(os.path.basename(f[0])), len(f[0]), f[0]))
+            rows = [{"path": p, "size": st.st_size, "library": recycle_root(p, root, in_library), "links": st.st_nlink,
+                     "tracked": "", "suggest": "keep" if i == 0 else ""} for i, (p, root, st) in enumerate(files)]
+            groups.append({
+                "id": hashlib.sha1(f"file|{digest}".encode()).hexdigest()[:12],
+                "kind": "file", "title": os.path.basename(files[0][0]), "verdict": SAME,
+                "verdict_text": "Identical files: every byte is the same.",
+                "note": "These can be anywhere you've told Duplicatearr to look, so nothing is ticked. Check that no "
+                        "app needs a copy where it is before you remove it.",
+                "files": rows, "reclaimable": sum(r["size"] for r in rows[1:] if r["links"] < 2),
+            })
+        return groups, count, [p for p, _, _ in todo]
+
     def tracked_files(self, series_folders=()):
         """{folder/file: "Radarr"} for the files Radarr and Sonarr track, matched on the last two path parts,
         so it works whatever each container calls the folders. Sonarr is only asked about series_folders."""
@@ -531,6 +638,23 @@ def all_parts(files):
     """CD1 and CD2 of one film aren't duplicates."""
     parts = [f.part for f in files]
     return all(parts) and len(set(parts)) == len(parts)
+
+
+def inode_of(path):
+    try:
+        st = os.stat(path)
+        return (st.st_dev, st.st_ino)
+    except OSError:
+        return None
+
+
+def recycle_root(path, root, libraries):
+    """Where a copy's recycle folder goes: the top of its library, or the top folder it's in under another folder
+    (a share, when that's the whole array), so it stays on the same disk and moving it is instant."""
+    if root in libraries:
+        return root
+    relative = os.path.relpath(path, root).split(os.sep)
+    return os.path.join(root, relative[0]) if len(relative) > 1 else root
 
 
 def track_key(path):

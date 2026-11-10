@@ -33,7 +33,7 @@ def main():
     next_scan = max(time.time() + 180, last + config.scan_interval_hours * 3600)
     while True:
         status.heartbeat(problems())
-        if time.time() >= next_scan and config.libraries:
+        if time.time() >= next_scan and (config.libraries or (config.check_all_files and config.other_folders)):
             try:
                 scanner.background(scanner.scan)
             except Busy:

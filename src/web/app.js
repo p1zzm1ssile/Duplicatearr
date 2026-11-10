@@ -103,7 +103,7 @@ api("/api/session").then((s) => {
 
 // ---------- Dashboard ----------
 
-const KINDS = { all: "Everything", movie: "Films", episode: "Episodes", extra: "Extras", image: "Pictures" };
+const KINDS = { all: "Everything", movie: "Films", episode: "Episodes", extra: "Extras", image: "Pictures", file: "Other files" };
 const VERDICT_STYLE = {
   same: ["ok", "Same video"], likely: ["info", "Very likely the same"], unsure: ["warn", "Check by hand"],
   different: ["bad", "Frames differ"], editions: ["warn", "Different editions"], lengths: ["warn", "Different lengths"],
@@ -146,7 +146,7 @@ function quality(f) {
 function groupCard(g, reload) {
   const result = el("span", { class: "result", role: "status" });
   const boxes = {};
-  const [style, label] = g.kind === "image" ? ["ok", "Same picture"] : g.kind === "extra" ? ["ok", "Identical files"]
+  const [style, label] = g.kind === "image" ? ["ok", "Same picture"] : (g.kind === "extra" || g.kind === "file") ? ["ok", "Identical files"]
     : VERDICT_STYLE[g.verdict] || ["info", g.verdict];
   const rows = g.files.map((f) => {
     const [folder, name] = splitPath(f.path);
@@ -161,7 +161,7 @@ function groupCard(g, reload) {
           f.tracked ? el("span", { class: "badge info", text: `Tracked by ${f.tracked}` }) : null,
           f.links > 1 ? el("span", { class: "badge warn", text: "Hardlinked: frees no space until the torrent is gone" }) : null,
           f.edition ? el("span", { class: "badge", text: f.edition }) : null)),
-      el("td", { class: "small", text: g.kind === "image" ? `${f.width}×${f.height}` : quality(f) }),
+      el("td", { class: "small", text: g.kind === "image" ? `${f.width}×${f.height}` : g.kind === "file" ? "" : quality(f) }),
       el("td", { class: "small nowrap", text: bytes(f.size) }));
   });
 
@@ -215,17 +215,17 @@ async function showDashboard() {
     el("div", { class: "toolbar" },
       el("h1", { text: "Dashboard" }),
       el("span", { class: "spacer" }),
-      el("span", { class: "muted small", text: d.scanned_at ? `Last scan ${ago(d.scanned_at)}, ${d.files} videos` : "Not scanned yet" }),
+      el("span", { class: "muted small", text: d.scanned_at ? `Last scan ${ago(d.scanned_at)}, ${d.files} videos${d.other_files ? `, ${d.other_files.toLocaleString()} files checked for copies` : ""}` : "Not scanned yet" }),
       stop, scan),
     p.running ? el("div", { class: "panel" },
       el("strong", { text: p.phase + "…" }),
       p.total ? el("div", { class: "progress" }, el("span", { style: `width:${Math.round((100 * p.done) / p.total)}%` })) : null,
       el("div", { class: "muted small", id: "progress-text", text: progressText(p) })) : null,
-    !d.libraries.length ? el("div", { class: "notice warn" }, "No library folders are set up. Add them in ",
+    !d.libraries.length && !d.other_folders ? el("div", { class: "notice warn" }, "No library folders are set up. Add them in ",
       el("a", { href: "#/settings/general", text: "Settings" }), ".") : null,
     (d.missing_libraries || []).length ? el("div", { class: "notice bad", text: `These folders weren't found, so weren't scanned: ${d.missing_libraries.join(", ")}. Check the paths in Settings and the container's folder mappings.` }) : null,
     el("div", { class: "tiles" },
-      ["movie", "episode", "extra", "image"].map((k) => el("div", { class: "tile" },
+      ["movie", "episode", "extra", "image"].concat(d.other_files || active.some((g) => g.kind === "file") ? ["file"] : []).map((k) => el("div", { class: "tile" },
         el("span", { class: "num", text: String(active.filter((g) => g.kind === k).length) }),
         el("span", { class: "label", text: KINDS[k] }))),
       el("div", { class: "tile warn" }, el("span", { class: "num", text: bytes(active.reduce((s, g) => s + g.reclaimable, 0)) }),
